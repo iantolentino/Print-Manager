@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drag then Print</title>
+  <link rel="icon" type="image/png" href="images/printer.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body { 
+      text-align: center; 
+      padding: 20px; 
+      display: flex; 
+    }
+    #side-panel {
+      width: 25%;
+      padding: 20px;
+      border-right: 2px solid #ddd;
+      text-align: left;
+    }
+    #paper-preview {
+      width: 210mm;
+      height: 297mm;
+      border: 0.5px solid black;
+      margin: auto;
+      padding: 20px;
+      position: relative;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      overflow: hidden;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    }
+    /* Fixed height for the image container */
+    #image-container {
+      position: relative;
+      width: 100%;
+      height: 80%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #uploaded-image {
+      max-width: 100%;
+      max-height: 100%;
+      transition: transform 0.3s ease;
+    }
+    .overlay-text {
+      font-size: 20px;
+      font-weight: bold;
+      color: black;
+    }
+    @media print {
+      body * { visibility: hidden; }
+      #paper-preview, #paper-preview * { visibility: visible; }
+      #paper-preview {
+        position: absolute;
+        top: 0;
+        left: 0;
+        /* Default portrait */
+        width: 210mm;
+        height: 297mm;
+        border: var(--print-border, 0.5px solid black) !important;
+        padding: 20px;
+      }
+      /* If the preview is in landscape mode, use these dimensions */
+      #paper-preview.landscape {
+        width: 280mm !important;
+        height: 190mm !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="side-panel">
+    <h1>Drag then print</h1>
+    <input type="file" id="file-input" class="form-control mt-3" accept="image/*" onchange="handleImageUpload(this.files[0])">
+    <input type="text" id="text-input" class="form-control mt-2" placeholder="Enter text below image">
+    <input type="text" id="deadline-input" class="form-control mt-2" placeholder="Enter deadline (or leave blank for None)">
+    <button class="btn btn-primary btn-sm mt-2 w-100" onclick="updateText()">Apply Text</button>
+    <input type="number" id="scale-input" class="form-control mt-2" placeholder="Enter scale percentage (100 for original)" value="100">
+    <button class="btn btn-outline-info mt-2" onclick="scaleImage()">Resize Image</button>
+    <div class="mt-3 d-grid gap-2">
+      <button class="btn btn-outline-primary" onclick="setImageMode('center')">Center Image</button>
+      <button class="btn btn-outline-secondary" onclick="setOrientation('landscape')">Landscape</button>
+      <button class="btn btn-outline-secondary" onclick="setOrientation('portrait')">Portrait</button>
+      <button class="btn btn-outline-warning" onclick="rotateImage()">Rotate Image</button>
+      <button class="btn btn-outline-dark" onclick="toggleBlackAndWhite()">Black & White</button>
+      <button class="btn btn-outline-danger" onclick="toggleBorder()">Toggle Border</button>
+    </div>
+    <button class="btn btn-success mt-3 w-100" onclick="printImage()">Print</button>
+  </div>
+  
+  <div id="paper-preview" ondrop="dropHandler(event)" ondragover="dragOverHandler(event)">
+    <div id="image-container">
+      <img id="uploaded-image" src="" alt="" style="display: none;">
+    </div>
+    <!-- Overlays will be appended to #paper-preview and positioned in the lower left -->
+    <div id="text-overlay" class="overlay-text"></div>
+    <div id="deadline-overlay" class="overlay-text"></div>
+  </div>
+  
+  <script>
+    let rotation = 0;
+    let isBlackAndWhite = false;
+    let borderVisible = true;
+    let currentScale = 1;  // 1 = 100%
+    let imageMode = 'cover'; // can be 'cover' or 'center'
+    const uploadedImage = document.getElementById('uploaded-image');
+    const textOverlay = document.getElementById('text-overlay');
+    const deadlineOverlay = document.getElementById('deadline-overlay');
+    const paperPreview = document.getElementById('paper-preview');
+    const imageContainer = document.getElementById('image-container');
+    
+    // Update the transform based on current scale, rotation, image mode, and orientation.
+    function updateTransform() {
+      if (paperPreview.classList.contains('landscape')) {
+        if (imageMode === 'center') {
+          // For center mode in landscape, shift slightly to the right.
+          uploadedImage.style.transform = `translate(-40%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
+        } else {
+          // For non-center mode, add a small translateX offset.
+          uploadedImage.style.transform = `translateX(10px) scale(${currentScale}) rotate(${rotation}deg)`;
+        }
+      } else {
+        if (imageMode === 'center') {
+          uploadedImage.style.transform = `translate(-50%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
+        } else {
+          uploadedImage.style.transform = `scale(${currentScale}) rotate(${rotation}deg)`;
+        }
+      }
+    }
+    
+    function handleImageUpload(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        uploadedImage.src = e.target.result;
+        uploadedImage.style.display = 'block';
+        uploadedImage.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    function updateText() {
+      textOverlay.textContent = document.getElementById('text-input').value;
+      const deadline = document.getElementById('deadline-input').value;
+      deadlineOverlay.textContent = deadline ? deadline : 'None';
+    }
+    
+    // Set image mode: if "center" is chosen, apply absolute positioning.
+    function setImageMode(mode) {
+      imageMode = mode;
+      if (mode === 'center') {
+        uploadedImage.style.position = 'absolute';
+        uploadedImage.style.top = '50%';
+        uploadedImage.style.left = '50%';
+      } else {
+        uploadedImage.style.position = '';
+        uploadedImage.style.top = '';
+        uploadedImage.style.left = '';
+      }
+      updateTransform();
+    }
+    
+    function setOrientation(orientation) {
+      if (orientation === 'landscape') {
+        paperPreview.classList.add('landscape');
+        paperPreview.style.width = '297mm';
+        paperPreview.style.height = '210mm';
+        paperPreview.style.padding = '5px';
+        paperPreview.style.overflow = 'hidden';
+        // Ensure the image is scaled up if needed.
+        if (currentScale < 1.2) {
+          currentScale = 1.2;
+          document.getElementById('scale-input').value = (currentScale * 100).toFixed(0);
+        }
+        // Append overlays to the paper preview and position them in the lower left corner.
+        paperPreview.appendChild(textOverlay);
+        paperPreview.appendChild(deadlineOverlay);
+        textOverlay.style.position = 'absolute';
+        textOverlay.style.bottom = '40px'; // Adjust to move more lower if needed
+        textOverlay.style.left = '10px';
+        deadlineOverlay.style.position = 'absolute';
+        deadlineOverlay.style.bottom = '10px';
+        deadlineOverlay.style.left = '10px';
+        updateTransform();
+      } else {
+        paperPreview.classList.remove('landscape');
+        paperPreview.style.width = '210mm';
+        paperPreview.style.height = '297mm';
+        paperPreview.style.padding = borderVisible ? '20px' : '0';
+        paperPreview.style.overflow = borderVisible ? 'hidden' : 'visible';
+        // In portrait mode, also append overlays to paperPreview and position them in lower left.
+        paperPreview.appendChild(textOverlay);
+        paperPreview.appendChild(deadlineOverlay);
+        textOverlay.style.position = 'absolute';
+        textOverlay.style.bottom = '40px';
+        textOverlay.style.left = '10px';
+        deadlineOverlay.style.position = 'absolute';
+        deadlineOverlay.style.bottom = '10px';
+        deadlineOverlay.style.left = '10px';
+        updateTransform();
+      }
+    }
+    
+    function rotateImage() {
+      rotation = (rotation + 90) % 360;
+      updateTransform();
+    }
+    
+    // When resizing the image, set overflow to visible so the image can extend above the border.
+    function scaleImage() {
+      currentScale = document.getElementById('scale-input').value / 100;
+      updateTransform();
+      paperPreview.style.overflow = 'visible';
+    }
+    
+    function toggleBlackAndWhite() {
+      isBlackAndWhite = !isBlackAndWhite;
+      uploadedImage.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
+    }
+    
+    function printImage() {
+      document.documentElement.style.setProperty('--print-border', borderVisible ? '0.5px solid black' : 'none');
+      window.print();
+    }
+    
+    function dragOverHandler(event) {
+      event.preventDefault();
+    }
+    
+    function dropHandler(event) {
+      event.preventDefault();
+      handleImageUpload(event.dataTransfer.files[0]);
+    }
+    
+    function toggleBorder() {
+      borderVisible = !borderVisible;
+      if (borderVisible) {
+        paperPreview.style.border = '0.5px solid black';
+        if (!paperPreview.classList.contains('landscape')) {
+          paperPreview.style.padding = '20px';
+          paperPreview.style.overflow = 'hidden';
+        }
+      } else {
+        paperPreview.style.border = 'none';
+        paperPreview.style.padding = '0';
+        paperPreview.style.overflow = 'visible';
+      }
+    }
+  </script>
+</body>
+</html>
