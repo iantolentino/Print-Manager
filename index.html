@@ -18,11 +18,21 @@
       border-right: 2px solid #ddd;
       text-align: left;
     }
-    #paper-preview {
+    /* Container for multiple paper previews */
+    #previews-container {
+      width: 100%;
+      margin: auto;
+      display: block;
+    }
+    /*
+     * .paper-preview replicates your #paper-preview logic
+     * but allows multiple previews (one per image).
+     */
+    .paper-preview {
       width: 210mm;
       height: 297mm;
       border: 0.5px solid black;
-      margin: auto;
+      margin: 20px auto; /* space between multiple previews */
       padding: 20px;
       position: relative;
       background: white;
@@ -33,43 +43,85 @@
       overflow: hidden;
       box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
     }
-    /* Fixed height for the image container */
-    #image-container {
+    /* For landscape mode */
+    .paper-preview.landscape {
+      width: 280mm;
+      height: 190mm;
+      padding: 5px;
+      overflow: hidden;
+    }
+    /* Container for each image inside the preview */
+    .image-container {
       position: relative;
       width: 100%;
-      height: 80%;
+      height: 91%;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
     }
-    #uploaded-image {
+    .uploaded-image {
       max-width: 100%;
       max-height: 100%;
       transition: transform 0.3s ease;
+      display: none; /* hidden until loaded */
     }
     .overlay-text {
       font-size: 20px;
       font-weight: bold;
       color: black;
+      position: absolute;
+      left: 10px; /* bottom-left corner for both portrait & landscape */
+    }
+    /* Position text overlay a bit higher than the deadline overlay */
+    .text-overlay {
+      bottom: 40px;
+    }
+    .deadline-overlay {
+      bottom: 10px;
+    }
+    #scale-slider {
+      width: 100%;
+      height: 30px;
+      background: #ddd;
+      margin: 10px 0;
+    }
+    #scale-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 30px;
+      width: 30px;
+      background: #007bff;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+    #scale-slider::-moz-range-thumb {
+      height: 30px;
+      width: 30px;
+      background: #007bff;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
     }
     @media print {
       body * { visibility: hidden; }
-      #paper-preview, #paper-preview * { visibility: visible; }
-      #paper-preview {
+      #previews-container, #previews-container * { visibility: visible; }
+      #previews-container {
         position: absolute;
         top: 0;
         left: 0;
-        /* Default portrait */
-        width: 210mm;
-        height: 297mm;
-        border: var(--print-border, 0.5px solid black) !important;
-        padding: 20px;
       }
-      /* If the preview is in landscape mode, use these dimensions */
-      #paper-preview.landscape {
+      .paper-preview {
+        page-break-after: always;
+        width: 210mm !important;
+        height: 297mm !important;
+        border: var(--print-border, 0.5px solid black) !important;
+        margin: 0 !important;
+        padding: 20px !important;
+      }
+      .paper-preview.landscape {
         width: 280mm !important;
         height: 190mm !important;
+        padding: 5px !important;
       }
     }
   </style>
@@ -77,12 +129,17 @@
 <body>
   <div id="side-panel">
     <h1>Drag then print</h1>
-    <input type="file" id="file-input" class="form-control mt-3" accept="image/*" onchange="handleImageUpload(this.files[0])">
+    <!-- multiple selection for multi-image -->
+    <input type="file" id="file-input" class="form-control mt-3" accept="image/*" multiple onchange="handleMultipleImages(this.files)">
+    
     <input type="text" id="text-input" class="form-control mt-2" placeholder="Enter text below image">
     <input type="text" id="deadline-input" class="form-control mt-2" placeholder="Enter deadline (or leave blank for None)">
     <button class="btn btn-primary btn-sm mt-2 w-100" onclick="updateText()">Apply Text</button>
-    <input type="number" id="scale-input" class="form-control mt-2" placeholder="Enter scale percentage (100 for original)" value="100">
-    <button class="btn btn-outline-info mt-2" onclick="scaleImage()">Resize Image</button>
+    
+    <label class="mt-2">Resize Image:</label>
+    <input type="range" id="scale-slider" class="form-control mt-2" min="50" max="200" value="100" oninput="scaleImage()">
+    <span id="scale-display">100%</span>
+    
     <div class="mt-3 d-grid gap-2">
       <button class="btn btn-outline-primary" onclick="setImageMode('center')">Center Image</button>
       <button class="btn btn-outline-secondary" onclick="setOrientation('landscape')">Landscape</button>
@@ -94,14 +151,7 @@
     <button class="btn btn-success mt-3 w-100" onclick="printImage()">Print</button>
   </div>
   
-  <div id="paper-preview" ondrop="dropHandler(event)" ondragover="dragOverHandler(event)">
-    <div id="image-container">
-      <img id="uploaded-image" src="" alt="" style="display: none;">
-    </div>
-    <!-- Overlays will be appended to #paper-preview and positioned in the lower left -->
-    <div id="text-overlay" class="overlay-text"></div>
-    <div id="deadline-overlay" class="overlay-text"></div>
-  </div>
+  <div id="previews-container"></div>
   
   <script>
     let rotation = 0;
@@ -109,148 +159,182 @@
     let borderVisible = true;
     let currentScale = 1;  // 1 = 100%
     let imageMode = 'cover'; // can be 'cover' or 'center'
-    const uploadedImage = document.getElementById('uploaded-image');
-    const textOverlay = document.getElementById('text-overlay');
-    const deadlineOverlay = document.getElementById('deadline-overlay');
-    const paperPreview = document.getElementById('paper-preview');
-    const imageContainer = document.getElementById('image-container');
-    
-    // Update the transform based on current scale, rotation, image mode, and orientation.
-    function updateTransform() {
-      if (paperPreview.classList.contains('landscape')) {
-        if (imageMode === 'center') {
-          // For center mode in landscape, shift slightly to the right.
-          uploadedImage.style.transform = `translate(-40%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
-        } else {
-          // For non-center mode, add a small translateX offset.
-          uploadedImage.style.transform = `translateX(10px) scale(${currentScale}) rotate(${rotation}deg)`;
-        }
-      } else {
-        if (imageMode === 'center') {
-          uploadedImage.style.transform = `translate(-50%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
-        } else {
-          uploadedImage.style.transform = `scale(${currentScale}) rotate(${rotation}deg)`;
-        }
+
+    // Document-level drag & drop
+    document.addEventListener('dragover', e => e.preventDefault());
+    document.addEventListener('drop', e => {
+      e.preventDefault();
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleMultipleImages(e.dataTransfer.files);
+      }
+    });
+
+    function createPreview() {
+      const previewDiv = document.createElement('div');
+      previewDiv.classList.add('paper-preview');
+      
+      const imageContainer = document.createElement('div');
+      imageContainer.classList.add('image-container');
+      previewDiv.appendChild(imageContainer);
+      
+      const uploadedImg = document.createElement('img');
+      uploadedImg.classList.add('uploaded-image');
+      imageContainer.appendChild(uploadedImg);
+      
+      const textOverlay = document.createElement('div');
+      textOverlay.classList.add('overlay-text', 'text-overlay');
+      previewDiv.appendChild(textOverlay);
+      
+      const deadlineOverlay = document.createElement('div');
+      deadlineOverlay.classList.add('overlay-text', 'deadline-overlay');
+      previewDiv.appendChild(deadlineOverlay);
+      
+      return { previewDiv, uploadedImg, textOverlay, deadlineOverlay };
+    }
+
+    function handleMultipleImages(files) {
+      if (!files) return;
+      const container = document.getElementById('previews-container');
+      container.innerHTML = '';
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const reader = new FileReader();
+        const { previewDiv, uploadedImg } = createPreview();
+        
+        container.appendChild(previewDiv);
+        reader.onload = (e) => {
+          uploadedImg.src = e.target.result;
+          uploadedImg.style.display = 'block';
+          uploadedImg.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
+          updateTransform(); 
+        };
+        reader.readAsDataURL(file);
       }
     }
-    
-    function handleImageUpload(file) {
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        uploadedImage.src = e.target.result;
-        uploadedImage.style.display = 'block';
-        uploadedImage.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
-      };
-      reader.readAsDataURL(file);
-    }
-    
+
     function updateText() {
-      textOverlay.textContent = document.getElementById('text-input').value;
-      const deadline = document.getElementById('deadline-input').value;
-      deadlineOverlay.textContent = deadline ? deadline : 'None';
+      setDefaultDeadline();
+      const textValue = document.getElementById('text-input').value;
+      const deadlineValue = document.getElementById('deadline-input').value;
+      document.querySelectorAll('.paper-preview').forEach(preview => {
+        const textOverlay = preview.querySelector('.text-overlay');
+        const deadlineOverlay = preview.querySelector('.deadline-overlay');
+        if (textOverlay) textOverlay.textContent = textValue;
+        if (deadlineOverlay) deadlineOverlay.textContent = deadlineValue;
+      });
     }
-    
-    // Set image mode: if "center" is chosen, apply absolute positioning.
+    function setDefaultDeadline() {
+      const deadlineInput = document.getElementById('deadline-input');
+      if (!deadlineInput.value.trim()) {
+        const now = new Date();
+        deadlineInput.value = now.toLocaleString();
+      }
+    }
+
     function setImageMode(mode) {
       imageMode = mode;
-      if (mode === 'center') {
-        uploadedImage.style.position = 'absolute';
-        uploadedImage.style.top = '50%';
-        uploadedImage.style.left = '50%';
-      } else {
-        uploadedImage.style.position = '';
-        uploadedImage.style.top = '';
-        uploadedImage.style.left = '';
-      }
+      const images = document.querySelectorAll('.uploaded-image');
+      images.forEach(img => {
+        if (mode === 'center') {
+          img.style.position = 'absolute';
+          img.style.top = '50%';
+          img.style.left = '50%';
+        } else {
+          img.style.position = '';
+          img.style.top = '';
+          img.style.left = '';
+        }
+      });
       updateTransform();
     }
-    
+
     function setOrientation(orientation) {
-      if (orientation === 'landscape') {
-        paperPreview.classList.add('landscape');
-        paperPreview.style.width = '297mm';
-        paperPreview.style.height = '210mm';
-        paperPreview.style.padding = '5px';
-        paperPreview.style.overflow = 'hidden';
-        // Ensure the image is scaled up if needed.
-        if (currentScale < 1.2) {
-          currentScale = 1.2;
-          document.getElementById('scale-input').value = (currentScale * 100).toFixed(0);
+      const previews = document.querySelectorAll('.paper-preview');
+      previews.forEach(preview => {
+        if (orientation === 'landscape') {
+          preview.classList.add('landscape');
+          if (currentScale < 1.2) {
+            currentScale = 1.2;
+            document.getElementById('scale-slider').value = (currentScale * 100).toFixed(0);
+          }
+        } else {
+          preview.classList.remove('landscape');
+          if (!borderVisible) {
+            preview.style.padding = '0';
+          }
         }
-        // Append overlays to the paper preview and position them in the lower left corner.
-        paperPreview.appendChild(textOverlay);
-        paperPreview.appendChild(deadlineOverlay);
-        textOverlay.style.position = 'absolute';
-        textOverlay.style.bottom = '40px'; // Adjust to move more lower if needed
-        textOverlay.style.left = '10px';
-        deadlineOverlay.style.position = 'absolute';
-        deadlineOverlay.style.bottom = '10px';
-        deadlineOverlay.style.left = '10px';
-        updateTransform();
-      } else {
-        paperPreview.classList.remove('landscape');
-        paperPreview.style.width = '210mm';
-        paperPreview.style.height = '297mm';
-        paperPreview.style.padding = borderVisible ? '20px' : '0';
-        paperPreview.style.overflow = borderVisible ? 'hidden' : 'visible';
-        // In portrait mode, also append overlays to paperPreview and position them in lower left.
-        paperPreview.appendChild(textOverlay);
-        paperPreview.appendChild(deadlineOverlay);
-        textOverlay.style.position = 'absolute';
-        textOverlay.style.bottom = '40px';
-        textOverlay.style.left = '10px';
-        deadlineOverlay.style.position = 'absolute';
-        deadlineOverlay.style.bottom = '10px';
-        deadlineOverlay.style.left = '10px';
-        updateTransform();
-      }
+      });
+      updateTransform();
     }
-    
+
     function rotateImage() {
       rotation = (rotation + 90) % 360;
       updateTransform();
     }
-    
-    // When resizing the image, set overflow to visible so the image can extend above the border.
+
     function scaleImage() {
-      currentScale = document.getElementById('scale-input').value / 100;
+      currentScale = document.getElementById('scale-slider').value / 100;
+      document.getElementById('scale-display').textContent = document.getElementById('scale-slider').value + '%';
       updateTransform();
-      paperPreview.style.overflow = 'visible';
     }
-    
+
+    /* 
+       For LANDSCAPE + CENTER, we now do the same -50% translation horizontally 
+       as in portrait, so it's truly centered. 
+    */
+    function updateTransform() {
+      const previews = document.querySelectorAll('.paper-preview');
+      previews.forEach(preview => {
+        const uploadedImg = preview.querySelector('.uploaded-image');
+        if (!uploadedImg) return;
+        
+        const isLandscape = preview.classList.contains('landscape');
+        
+        if (isLandscape) {
+          if (imageMode === 'center') {
+            // Changed from -40% to -50% horizontally for a true center
+            uploadedImg.style.transform = `translate(-50%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
+          } else {
+            uploadedImg.style.transform = `translateX(10px) scale(${currentScale}) rotate(${rotation}deg)`;
+          }
+        } else {
+          if (imageMode === 'center') {
+            uploadedImg.style.transform = `translate(-50%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
+          } else {
+            uploadedImg.style.transform = `scale(${currentScale}) rotate(${rotation}deg)`;
+          }
+        }
+      });
+    }
+
     function toggleBlackAndWhite() {
       isBlackAndWhite = !isBlackAndWhite;
-      uploadedImage.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
+      document.querySelectorAll('.uploaded-image').forEach(img => {
+        img.style.filter = isBlackAndWhite ? 'grayscale(100%)' : 'none';
+      });
     }
-    
+
+    function toggleBorder() {
+      borderVisible = !borderVisible;
+      const previews = document.querySelectorAll('.paper-preview');
+      previews.forEach(preview => {
+        if (borderVisible) {
+          preview.style.border = '0.5px solid black';
+          if (!preview.classList.contains('landscape')) {
+            preview.style.padding = '20px';
+            preview.style.overflow = 'hidden';
+          }
+        } else {
+          preview.style.border = 'none';
+          preview.style.padding = '0';
+          preview.style.overflow = 'visible';
+        }
+      });
+    }
+
     function printImage() {
       document.documentElement.style.setProperty('--print-border', borderVisible ? '0.5px solid black' : 'none');
       window.print();
-    }
-    
-    function dragOverHandler(event) {
-      event.preventDefault();
-    }
-    
-    function dropHandler(event) {
-      event.preventDefault();
-      handleImageUpload(event.dataTransfer.files[0]);
-    }
-    
-    function toggleBorder() {
-      borderVisible = !borderVisible;
-      if (borderVisible) {
-        paperPreview.style.border = '0.5px solid black';
-        if (!paperPreview.classList.contains('landscape')) {
-          paperPreview.style.padding = '20px';
-          paperPreview.style.overflow = 'hidden';
-        }
-      } else {
-        paperPreview.style.border = 'none';
-        paperPreview.style.padding = '0';
-        paperPreview.style.overflow = 'visible';
-      }
     }
   </script>
 </body>
