@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Drag then Print</title>
+  <title>Drag en Print</title>
   <link rel="icon" type="image/png" href="images/printer.png" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
@@ -25,7 +25,7 @@
       display: block;
     }
     /*
-     * .paper-preview replicates your #paper-preview logic
+     * .paper-preview replicates your preview logic
      * but allows multiple previews (one per image).
      */
     .paper-preview {
@@ -54,7 +54,7 @@
     .image-container {
       position: relative;
       width: 100%;
-      height: 91%;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -66,19 +66,27 @@
       transition: transform 0.3s ease;
       display: none; /* hidden until loaded */
     }
+    /* Caption input below the image, centered */
+    .caption-input {
+      width: 80%;
+      margin: 15px auto;
+      display: block;
+      text-align: center;
+      font-size: 40px;
+      border: none;
+      border-bottom: 1px solid #ccc;
+      outline: none;
+    }
     .overlay-text {
-      font-size: 20px;
+      font-size: 15px;
       font-weight: bold;
       color: black;
       position: absolute;
-      left: 10px; /* bottom-left corner for both portrait & landscape */
     }
-    /* Position text overlay a bit higher than the deadline overlay */
-    .text-overlay {
-      bottom: 40px;
-    }
+    /* Deadline overlay stays at the bottom left */
     .deadline-overlay {
-      bottom: 10px;
+      bottom: 0px;
+      left: 10px;
     }
     #scale-slider {
       width: 100%;
@@ -116,7 +124,7 @@
         height: 297mm !important;
         border: var(--print-border, 0.5px solid black) !important;
         margin: 0 !important;
-        padding: 20px !important;
+        padding: 10px !important;
       }
       .paper-preview.landscape {
         width: 280mm !important;
@@ -128,20 +136,20 @@
 </head>
 <body>
   <div id="side-panel">
-    <h1>Drag then print</h1>
-    <!-- multiple selection for multi-image -->
+    <h1>Drag en Print</h1>
+    <!-- Multiple selection for multi-image upload -->
     <input type="file" id="file-input" class="form-control mt-3" accept="image/*" multiple onchange="handleMultipleImages(this.files)">
     
-    <input type="text" id="text-input" class="form-control mt-2" placeholder="Enter text below image">
-    <input type="text" id="deadline-input" class="form-control mt-2" placeholder="Enter deadline (or leave blank for None)">
-    <button class="btn btn-primary btn-sm mt-2 w-100" onclick="updateText()">Apply Text</button>
+    <!-- Deadline input remains global -->
+    <input type="text" id="deadline-input" class="form-control mt-2" placeholder="Date/Time">
+    <button class="btn btn-primary btn-sm mt-2 w-100" onclick="updateText()">Add Timeframe</button>
     
     <label class="mt-2">Resize Image:</label>
     <input type="range" id="scale-slider" class="form-control mt-2" min="50" max="200" value="100" oninput="scaleImage()">
     <span id="scale-display">100%</span>
     
     <div class="mt-3 d-grid gap-2">
-      <button class="btn btn-outline-primary" onclick="setImageMode('center')">Center Image</button>
+      <!-- <button class="btn btn-outline-primary" onclick="setImageMode('center')">Center Image</button> -->
       <button class="btn btn-outline-secondary" onclick="setOrientation('landscape')">Landscape</button>
       <button class="btn btn-outline-secondary" onclick="setOrientation('portrait')">Portrait</button>
       <button class="btn btn-outline-warning" onclick="rotateImage()">Rotate Image</button>
@@ -160,7 +168,7 @@
     let currentScale = 1;  // 1 = 100%
     let imageMode = 'cover'; // can be 'cover' or 'center'
 
-    // Document-level drag & drop
+    // Enable drag & drop at the document level
     document.addEventListener('dragover', e => e.preventDefault());
     document.addEventListener('drop', e => {
       e.preventDefault();
@@ -173,6 +181,7 @@
       const previewDiv = document.createElement('div');
       previewDiv.classList.add('paper-preview');
       
+      // Create the image container
       const imageContainer = document.createElement('div');
       imageContainer.classList.add('image-container');
       previewDiv.appendChild(imageContainer);
@@ -181,15 +190,19 @@
       uploadedImg.classList.add('uploaded-image');
       imageContainer.appendChild(uploadedImg);
       
-      const textOverlay = document.createElement('div');
-      textOverlay.classList.add('overlay-text', 'text-overlay');
-      previewDiv.appendChild(textOverlay);
+      // Caption input placed below the image (centered)
+      const captionInput = document.createElement('input');
+      captionInput.type = 'text';
+      captionInput.placeholder = 'Enter caption';
+      captionInput.classList.add('caption-input');
+      previewDiv.appendChild(captionInput);
       
+      // Deadline overlay remains for displaying the deadline (unchanged)
       const deadlineOverlay = document.createElement('div');
       deadlineOverlay.classList.add('overlay-text', 'deadline-overlay');
       previewDiv.appendChild(deadlineOverlay);
       
-      return { previewDiv, uploadedImg, textOverlay, deadlineOverlay };
+      return { previewDiv, uploadedImg, captionInput, deadlineOverlay };
     }
 
     function handleMultipleImages(files) {
@@ -212,14 +225,12 @@
       }
     }
 
+    // Updates the deadline text for each preview (deadline remains global)
     function updateText() {
       setDefaultDeadline();
-      const textValue = document.getElementById('text-input').value;
       const deadlineValue = document.getElementById('deadline-input').value;
       document.querySelectorAll('.paper-preview').forEach(preview => {
-        const textOverlay = preview.querySelector('.text-overlay');
         const deadlineOverlay = preview.querySelector('.deadline-overlay');
-        if (textOverlay) textOverlay.textContent = textValue;
         if (deadlineOverlay) deadlineOverlay.textContent = deadlineValue;
       });
     }
@@ -278,10 +289,6 @@
       updateTransform();
     }
 
-    /* 
-       For LANDSCAPE + CENTER, we now do the same -50% translation horizontally 
-       as in portrait, so it's truly centered. 
-    */
     function updateTransform() {
       const previews = document.querySelectorAll('.paper-preview');
       previews.forEach(preview => {
@@ -289,10 +296,8 @@
         if (!uploadedImg) return;
         
         const isLandscape = preview.classList.contains('landscape');
-        
         if (isLandscape) {
           if (imageMode === 'center') {
-            // Changed from -40% to -50% horizontally for a true center
             uploadedImg.style.transform = `translate(-50%, -50%) scale(${currentScale}) rotate(${rotation}deg)`;
           } else {
             uploadedImg.style.transform = `translateX(10px) scale(${currentScale}) rotate(${rotation}deg)`;
